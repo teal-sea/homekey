@@ -208,7 +208,7 @@ and `src/vercel-headers.test.ts` fails if the two ever differ.
   Each adapted file says so in a comment.
 - Development only, not shipped: Vite, TypeScript, Vitest, Playwright, `@types/node`.
 
-This project's own licence has not been chosen yet.
+Homekey's own code is under the [MIT licence](LICENSE). The licences above cover what it depends on.
 
 ## What was tested, and what was not
 
