@@ -1,0 +1,100 @@
+Third-party notices
+
+The only third-party code this app ships is the amp engine, served from /nam/:
+nam-worklet.js and nam-engine.wasm. scripts/copy-engine.mjs copies them there
+from node_modules at build time, with the package's LICENSE and this file.
+
+They come from the npm package neural-amp-modeler-wasm 3.0.7 by TONE3000
+(https://github.com/tone-3000/neural-amp-modeler-wasm), MIT licence, copyright
+2026 TONE3000; its licence text is LICENSE next to this file in /nam/.
+
+That package's WebAssembly build compiles in the code listed below. Checked
+2026-11-08 against the package's source repository at its 3.0.7 commit
+(ea8dc285462d6cedd982691b9f090cd03dac04a2; wasm/CMakeLists.txt compiles every
+.cpp under NeuralAmpModelerCore's NAM/, with Eigen and nlohmann/json on the
+include path) and against the NeuralAmpModelerCore submodule that commit pins:
+tag v0.5.4, commit 1f42f88535884450104b8711d7595019afa0495b.
+
+Not compiled in: AudioDSPTools. NeuralAmpModelerCore v0.5.4 lists it as a
+submodule, but no file under NAM/ includes it and the wasm build does not put
+it on the include path.
+
+
+1. NeuralAmpModelerCore v0.5.4
+   https://github.com/sdatkinson/NeuralAmpModelerCore/tree/v0.5.4
+
+MIT License
+
+Copyright (c) 2023 Steven Atkinson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+2. Eigen, commit bc3b39870ecb690a623a3f49149a358b95c5781d
+   (the commit NeuralAmpModelerCore v0.5.4 pins)
+
+Eigen is a header-only C++ library, compiled in through NeuralAmpModelerCore's
+#include <Eigen/Dense> and <unsupported/Eigen/FFT>. It is licensed under the
+Mozilla Public License 2.0 (MPL-2.0); per Eigen's COPYING.README, some of its
+files carry BSD or other MPL-2.0-compatible licences.
+
+Source code of exactly this version:
+https://gitlab.com/libeigen/eigen/-/tree/bc3b39870ecb690a623a3f49149a358b95c5781d
+
+Licence text: https://www.mozilla.org/MPL/2.0/
+
+
+3. JSON for Modern C++ (nlohmann/json) 3.12.0
+   https://github.com/nlohmann/json
+   Vendored in NeuralAmpModelerCore as Dependencies/nlohmann/json.hpp.
+
+MIT License
+
+Copyright (c) 2013-2025 Niels Lohmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+4. The Emscripten runtime
+
+The module and its JavaScript loader were built with Emscripten
+(https://emscripten.org); the package does not record which version. Its
+runtime libraries are compiled into the module: Emscripten's own code is under
+the MIT licence or the University of Illinois/NCSA Open Source License, its
+bundled musl libc under the MIT licence, and LLVM's libc++ under the Apache
+License 2.0 with LLVM Exceptions. Licence texts:
+https://github.com/emscripten-core/emscripten/blob/main/LICENSE
+https://github.com/emscripten-core/emscripten/blob/main/system/lib/libc/musl/COPYRIGHT
+https://github.com/emscripten-core/emscripten/blob/main/system/lib/libcxx/LICENSE.TXT

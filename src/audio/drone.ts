@@ -1,8 +1,8 @@
-// Adapted from ModalRuns (same author): src/utils/audioEngine.ts, the generative drone.
+// Adapted from the author's Modal Runs app (modalruns.com): its generative drone.
 //
 // ─── Drone ──────────────────────────────────────────────────────────
 // A root + fifth bed to improvise against, on graph.droneBus. Simplified from
-// ModalRuns: no sub octave, no saturation, no reverb (the app adds none in
+// the original: no sub octave, no saturation, no reverb (the app adds none in
 // M1). What stays is what makes it breathe: three slightly detuned sines on
 // the root that beat slowly against each other, a lowpass that opens and
 // closes over twenty seconds, and a slow tremolo.
@@ -13,8 +13,9 @@
 //
 // Every set fades in and fades out on the audio clock, and its oscillators are
 // stopped at the end of the fade; their 'ended' event tears the set down and
-// disconnects every node (ModalRuns golden rule 5). Using 'ended' rather than
-// a timer ties cleanup to when the audio actually finished.
+// disconnects every node, so a stopped drone leaves nothing in the graph.
+// Using 'ended' rather than a timer ties cleanup to when the audio actually
+// finished.
 
 import type { Graph } from './graph'
 import { toPc } from '../theory/notes'
@@ -61,7 +62,7 @@ const FADE_IN = 5 // seconds, the slow bloom from silence
 const RETUNE = 2.5 // seconds, crossfade to a new root
 const FADE_OUT = 2.5 // seconds
 const DEFAULT_LEVEL = 0.5
-const TONE_HZ = 2700 // lowpass centre (ModalRuns' default Tone setting)
+const TONE_HZ = 2700 // lowpass centre: the original's default tone setting
 
 type Layer = readonly [ratio: number, type: OscillatorType, gain: number]
 
@@ -123,8 +124,8 @@ export function createDrone(graph: Graph): Drone {
     const envelope = gain(0)
     envelope.gain.setValueCurveAtTime(equalPowerFade(0, PEAK), now, fadeSeconds)
 
-    // Tremolo on its own gain, not on the envelope (ModalRuns added it to the
-    // envelope's gain, so a "silent" envelope still wobbled at ±0.06).
+    // Tremolo on its own gain, not on the envelope: added to the envelope's
+    // gain, a "silent" envelope would still wobble at ±0.06.
     const tremolo = gain(1)
     osc('sine', 0.08).connect(gain(0.06)).connect(tremolo.gain)
 

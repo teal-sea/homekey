@@ -26,3 +26,11 @@ What it does in the browser engine (Chromium, 2026-11-08): it loads in under 6 m
 sine through it comes out at 0.000 dB. The only difference from the input is the engine's
 own 10 Hz DC-blocking high-pass, which every model gets: against a reference sine through
 the same one-pole high-pass, the largest sample difference is 4.5e-7.
+
+## The cab IR test
+
+It needs no file here: `tests/e2e/rig.spec.ts` writes a 100 ms unit impulse (one sample
+of 1.0, then silence) with the repo's own WAV encoder and hands it to the IR picker. The
+convolver normalises an IR's power, so a take through it comes out quieter than the dry
+beep (peak 0.09 in Chromium, 2026-11-08), which is why the test only asks that it is not
+silent.

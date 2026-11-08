@@ -27,16 +27,26 @@ export interface Graph {
   isMonitoring(): boolean
   setPanic(muted: boolean): void
   isPanicked(): boolean
-  close(): Promise<void>
 }
 
-const RAMP = 0.015 // seconds; short enough to feel instant, long enough not to click
+// ─── Gain automation ───
+// The one gain glide every module uses, so they all move a gain the same way.
 
-function ramp(param: AudioParam, ctx: BaseAudioContext, value: number): void {
+/** Seconds: short enough to feel instant, long enough not to click. */
+export const RAMP = 0.015
+
+/**
+ * Glide `param` from wherever it is now to `value`, on the audio clock. The
+ * current value is read BEFORE cancelling: once a glide in flight is
+ * cancelled, `value` may report where that glide started rather than where it
+ * got to, and the new glide would jump back first.
+ */
+export function rampTo(param: AudioParam, ctx: BaseAudioContext, value: number, seconds = RAMP): void {
   const now = ctx.currentTime
+  const from = param.value
   param.cancelScheduledValues(now)
-  param.setValueAtTime(param.value, now)
-  param.linearRampToValueAtTime(value, now + RAMP)
+  param.setValueAtTime(from, now)
+  param.linearRampToValueAtTime(value, now + seconds)
 }
 
 /** Create the context and buses. Call from a user gesture (autoplay policy). */
@@ -59,6 +69,10 @@ export function createGraph(options: { sampleRate?: number } = {}): Graph {
   const clickBus = stereo()
   const master = stereo()
 
+  // A safety net, not a tone stage: guitar, loop, drone and click can sum past
+  // full scale, and an over at the destination clips harshly. -3 dB leaves
+  // normal levels untouched; 12:1 (the node's maximum is 20) with a 2 ms attack
+  // holds a peak down within a few ms; the 120 ms release keeps it from pumping.
   const limiter = ctx.createDynamicsCompressor()
   limiter.threshold.value = -3
   limiter.knee.value = 2
@@ -82,10 +96,9 @@ export function createGraph(options: { sampleRate?: number } = {}): Graph {
     ctx, guitarBus, monitorGain, loopBus, droneBus, clickBus, master, limiter,
     renderQuantum,
     ampSupported: renderQuantum === 128,
-    setMonitoring(on) { monitoring = on; ramp(monitorGain.gain, ctx, on ? 1 : 0) },
+    setMonitoring(on) { monitoring = on; rampTo(monitorGain.gain, ctx, on ? 1 : 0) },
     isMonitoring: () => monitoring,
-    setPanic(muted) { panicked = muted; ramp(master.gain, ctx, muted ? 0 : 1) },
+    setPanic(muted) { panicked = muted; rampTo(master.gain, ctx, muted ? 0 : 1) },
     isPanicked: () => panicked,
-    close: () => ctx.close(),
   }
 }

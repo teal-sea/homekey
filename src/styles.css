@@ -1,0 +1,300 @@
+/* ─── Page styles ────────────────────────────────────────────────────
+   Dark and calm, for a dim room and a player looking up from the neck.
+   Every colour is a custom property, so the fretboard view (which paints
+   through var(--fb-*)) and the page change together. No inline styles exist
+   anywhere (CSP style-src 'self'); the few live values are set via the CSSOM. */
+
+:root {
+  color-scheme: dark;
+  --bg: #111315;
+  --panel: #191c20;
+  --panel-2: #22262b;
+  --line: #30353c;
+  --text: #e9e5dc;
+  --muted: #a4abb3;
+  --accent: #e2a83c;
+  --accent-ink: #1d1404;
+  --record: #cf4436;
+  --record-ink: #ffffff;
+  --ok: #43c08f;
+  --warn: #e9b65a;
+  --error: #ff8a7a;
+  --focus: #86b8ff;
+  --radius: 10px;
+
+  --fb-root: #cf4436;
+  --fb-scale: #36679f;
+  --fb-character: #e2a83c;
+  --fb-heard: #46e3a8;
+  --fb-wood: #2a1e15;
+  --fb-string: #d2c9b6;
+  --fb-text: #a4abb3;
+
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Focus and in-page scrolling stop below the sticky deck instead of under it
+   (WCAG 2.4.11). main.ts measures the deck into --deck-h, through the CSSOM. */
+html { scroll-padding-top: calc(var(--deck-h, 0px) + 8px); }
+
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 320px;
+}
+
+h1, h2 { margin: 0; font-weight: 650; letter-spacing: 0.01em; }
+h1 { font-size: 1.15rem; white-space: nowrap; }
+h2 { font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px; }
+p { margin: 6px 0; }
+
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+/* ─── Controls ─── */
+
+button, select, input[type="number"] {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-height: 40px;
+  padding: 6px 12px;
+}
+
+button { cursor: pointer; font-weight: 600; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled, select:disabled, input:disabled { opacity: 0.45; cursor: not-allowed; }
+
+input[type="number"] { width: 6.5em; }
+select { max-width: 100%; }
+
+/* Hidden but still focusable and announced: the clip pattern, never display: none. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* A file picker drawn as a button: the label opens the hidden input. */
+.file-pick { position: relative; display: flex; }
+.file-button {
+  display: inline-flex; align-items: center; min-height: 40px; padding: 6px 12px;
+  font-weight: 600; color: var(--text); background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 8px; cursor: pointer;
+}
+.file-button:hover { border-color: var(--muted); }
+.file-pick input:focus-visible + .file-button { outline: 3px solid var(--focus); outline-offset: 2px; }
+.file-pick input:disabled + .file-button { opacity: 0.45; cursor: not-allowed; border-color: var(--line); }
+
+input[type="range"] { accent-color: var(--accent); flex: 1; min-width: 100px; }
+
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+button.toggle[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+/* The state, for the eye; the button's name stays fixed (aria-hidden in the markup). */
+.toggle-state {
+  margin-left: 0.45em; font-size: 0.75em; font-weight: 700; letter-spacing: 0.06em;
+  text-transform: uppercase; opacity: 0.8;
+}
+
+.segmented { display: inline-flex; }
+.segmented .seg { border-radius: 0; min-width: 6em; }
+.segmented .seg:first-child { border-radius: 8px 0 0 8px; }
+.segmented .seg:last-child { border-radius: 0 8px 8px 0; border-left: none; }
+.segmented .seg[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+output { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 5.5em; text-align: right; }
+
+kbd {
+  font: 600 0.85rem ui-monospace, "SF Mono", Menlo, monospace;
+  border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px;
+  padding: 1px 6px; background: var(--panel-2);
+}
+
+/* ─── Deck (sticky: Start, status, Panic, transport) ─── */
+
+.deck {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg); /* opaque: text scrolling under it must not ghost through */
+  border-bottom: 1px solid var(--line);
+  padding: 10px 16px 8px;
+}
+
+/* A short window cannot spare the height; the deck then scrolls with the page. */
+@media (max-height: 560px) {
+  .deck { position: static; }
+  html { scroll-padding-top: 0; }
+}
+
+.deck-top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.deck-status { flex: 1 1 260px; min-width: 0; }
+.deck-status .status { margin: 0; color: var(--muted); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+
+.panic {
+  margin-left: auto;
+  border: 2px solid var(--record);
+  color: var(--error);
+  background: transparent;
+}
+.panic[aria-pressed="true"] { background: var(--record); color: var(--record-ink); }
+body.panicked .deck { border-bottom: 3px solid var(--record); }
+
+.deck-status .monitor-note { color: var(--warn); margin-top: 4px; }
+button.inline { min-height: 32px; padding: 2px 10px; font-size: 0.85rem; margin-left: 4px; }
+
+.deck-transport { display: flex; align-items: center; gap: 12px 20px; flex-wrap: wrap; margin-top: 10px; }
+.transport-buttons { display: flex; gap: 8px; flex-wrap: wrap; }
+
+button.big { min-height: 56px; min-width: 6.2em; font-size: 1.1rem; border-radius: 12px; }
+button.big.record { background: var(--record); color: var(--record-ink); border-color: var(--record); min-width: 7.5em; }
+button.big.record:disabled { opacity: 0.35; }
+
+.transport-state { flex: 1 1 220px; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 14px; }
+.state { font-size: 1.15rem; font-weight: 700; }
+.state[data-state="count-in"], .state[data-state="overdub-armed"] { color: var(--warn); }
+.state[data-state="recording-base"], .state[data-state="recording-overdub"] { color: var(--error); }
+.state[data-state="playing"] { color: var(--ok); }
+.state[data-state="error"] { color: var(--error); }
+.beat { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.position {
+  grid-column: 1 / -1;
+  position: relative; height: 8px; border-radius: 4px; overflow: hidden; background: #0a0b0c;
+}
+.position-fill { position: absolute; inset: 0; background: var(--accent); transform-origin: left center; transform: scaleX(0); }
+
+/* Narrow: Start and Panic share the first line, the status drops below it,
+   and the six buttons sit in a 3 × 2 block, so the sticky deck stays short. */
+@media (max-width: 600px) {
+  .deck { padding: 8px 12px; }
+  .deck-top { gap: 6px 10px; }
+  h1 { font-size: 1rem; }
+  .panic { order: 2; }
+  .deck-status { order: 3; flex-basis: 100%; }
+  .deck-status .status { font-size: 0.78rem; }
+  .deck-transport { margin-top: 6px; gap: 6px; }
+  .transport-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+  button.big, button.big.record { min-height: 44px; min-width: 0; font-size: 1rem; padding: 4px 6px; }
+}
+
+/* ─── Layout ─── */
+
+.grid {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  max-width: 1440px;
+  margin: 0 auto;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "input" "tone" "looper" "key" "shortcuts";
+}
+#input { grid-area: input; }
+#tone { grid-area: tone; }
+#looper { grid-area: looper; }
+#key { grid-area: key; }
+#shortcuts { grid-area: shortcuts; }
+
+@media (min-width: 760px) {
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "input tone" "key key" "looper shortcuts";
+  }
+}
+
+@media (min-width: 1180px) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas: "input tone looper" "key key key" "shortcuts shortcuts shortcuts";
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 16px;
+  min-width: 0;
+}
+
+.row { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; margin: 8px 0; }
+.field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; min-width: 0; }
+.row > .field { margin: 0; }
+.field > label, .field > .label { font-size: 0.85rem; color: var(--muted); }
+.slider-row { display: flex; align-items: center; gap: 10px; }
+
+.help { color: var(--muted); font-size: 0.85rem; }
+.note { color: var(--muted); font-size: 0.9rem; font-style: italic; }
+.fact { font-size: 0.95rem; }
+.warn { color: var(--warn); font-size: 0.9rem; }
+.error { color: var(--error); font-weight: 600; }
+.status { font-size: 0.95rem; }
+#tone-status[data-status="ready"] { color: var(--ok); }
+#tone-status[data-status="error"], #tone-status[data-status="unsupported"] { color: var(--error); }
+
+.facts { list-style: none; margin: 8px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.85rem; color: var(--muted); }
+
+/* ─── Meter ─── */
+
+.meter-row { display: flex; align-items: center; gap: 10px; }
+.meter {
+  position: relative; flex: 1; height: 14px; border-radius: 4px; overflow: hidden;
+  background: #0a0b0c; border: 1px solid var(--line);
+}
+/* The gradient spans the whole meter and is revealed with clip-path, not scaled:
+   scaling would squeeze the full gradient into the lit part, so even a quiet
+   signal would end in red and read as clipping. */
+.meter-fill {
+  position: absolute; inset: 0; clip-path: inset(0 100% 0 0);
+  background: linear-gradient(90deg, var(--ok) 0%, var(--ok) 75%, var(--warn) 90%, var(--record) 100%);
+}
+.meter-peak { position: absolute; top: 0; bottom: 0; width: 2px; left: 0; background: var(--text); }
+.meter.clip { border-color: var(--record); }
+.meter-text { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.85rem; min-width: 8.5em; text-align: right; }
+
+/* ─── Key ─── */
+
+.key-row { align-items: flex-end; }
+.heard {
+  margin-left: auto;
+  display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 0 10px;
+  min-width: 11em; padding: 6px 12px; border-radius: 8px; background: var(--panel-2);
+}
+.heard-note { font-size: 2rem; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.heard-cents { color: var(--muted); font-variant-numeric: tabular-nums; }
+.heard-role { grid-column: 1 / -1; color: var(--muted); font-size: 0.85rem; }
+.heard:not([data-midi=""]) .heard-note { color: var(--fb-heard); }
+
+.fretboard { margin-top: 10px; color: var(--muted); }
+.fb-viewport { border-radius: 8px; }
+/* Edge tags: the heard note also sits off screen on a neck that scrolls sideways. */
+.fb-wrap { position: relative; }
+.fb-more {
+  position: absolute; top: 50%; transform: translateY(-50%); pointer-events: none;
+  padding: 2px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700;
+  background: var(--panel-2); color: var(--fb-heard); border: 1px solid var(--fb-heard);
+}
+.fb-more--left { left: 4px; }
+.fb-more--right { right: 4px; }
+
+/* ─── Shortcuts, footer ─── */
+
+.keys { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; align-items: baseline; }
+.keys dd { margin: 0; color: var(--muted); }
+@media (min-width: 1180px) {
+  .keys { grid-template-columns: repeat(2, auto 1fr); }
+}
+
+.footer { text-align: center; color: var(--muted); font-size: 0.85rem; padding: 4px 16px 24px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  button { transition: background-color 120ms, border-color 120ms; }
+}

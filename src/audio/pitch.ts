@@ -1,5 +1,5 @@
 // ─── Pitch Detection (McLeod Pitch Method) ──────────────────────────
-// Adapted from ModalRuns (same author): src/utils/pitchDetect.ts, behaviour
+// Adapted from the author's Modal Runs app (modalruns.com), behaviour
 // unchanged. Keep it that way: the gates and the peak rule below were tuned
 // against real playing there, and the ported tests pin them.
 //
@@ -25,8 +25,8 @@ const MIN_FREQ = 28
 const MAX_FREQ = 4500
 
 // Below this RMS the buffer is silence/room noise, not a note. This is the
-// FLOOR: ModalRuns raised it after calibrating against a laptop mic's ambient
-// bleed. The rig's input is an interface (a DI has no room in it), so M1 uses
+// FLOOR: the original raised it after calibrating against a laptop mic's
+// ambient bleed. The rig's input is an interface (a DI has no room in it), so M1 uses
 // it as a fixed, configurable gate instead (see analysis.ts).
 // A thin high string picked normally is quieter than a low string, so the
 // floor sits low enough that a quiet high note still clears it.

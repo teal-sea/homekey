@@ -1,4 +1,4 @@
-// Adapted from ModalRuns (same author): src/utils/musicTheory.ts and src/types/music.ts.
+// Adapted from the author's Modal Runs app (modalruns.com): its music theory.
 //
 // ─── Notes ──────────────────────────────────────────────────────────
 // Pitch classes are integers 0–11 (C = 0 … B = 11). MIDI numbers are absolute
@@ -90,7 +90,7 @@ export function scaleFormula(intervals: readonly number[], separator = ' - '): s
 // The rules below get every major mode and pentatonic right and pick the
 // least-wrong spelling for the rest.
 
-// The fallback when nothing else decides: the root alone, as ModalRuns' useFlats.
+// The fallback when nothing else decides: the root alone, as in the original.
 // The app holds a root as a pitch class, not a name, so a black-key root takes
 // the name a guitarist usually calls that key (Db, Eb, F#, Ab, Bb).
 const DEFAULT_ROOT_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
@@ -104,7 +104,7 @@ const LETTERS = 'CDEFGAB'
 const NATURAL_MINOR = [0, 2, 3, 5, 7, 8, 10]
 
 // How many of the scale's notes land on the letter its formula names, spelled
-// one way (the chordUsesFlats vote in ModalRuns, applied to a scale). The root's
+// one way (the original's vote for chords, applied to a scale). The root's
 // own letter comes from the same spelling, so F# and Gb are each judged fairly.
 function lettersOnDegree(rootPc: number, intervals: readonly number[], flats: boolean): number {
   const spell = intervalSpeller(intervals)
@@ -124,8 +124,8 @@ function lettersOnDegree(rootPc: number, intervals: readonly number[], flats: bo
  * 2. Fewer notes inside the major or natural minor on the same root: spelled as
  *    that parent (D major pentatonic F#).
  * 3. Otherwise the formula votes: whichever spelling puts more notes on the letter
- *    its degree names. This is where it departs from ModalRuns, which let the root
- *    decide: A blues there reads D#, here it reads Eb, the flat fifth it is.
+ *    its degree names. This is where it departs from the original, which let the
+ *    root decide: A blues there reads D#, here it reads Eb, the flat fifth it is.
  * 4. A tie (all naturals, or D harmonic minor's Bb against C#): the root decides.
  */
 export function scaleUsesFlats(rootPc: number, intervals: readonly number[]): boolean {

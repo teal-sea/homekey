@@ -10,8 +10,9 @@ import { isScaleKey, type ScaleKey } from '../theory/scales'
 import type { ToneMode } from '../audio/tone'
 import { BPM_MAX, BPM_MIN } from '../audio/transport'
 import { clampLatencyMs } from '../audio/looper'
+import { APP_SLUG } from '../app-name'
 
-export const SETTINGS_KEY = 'guitar-rig.settings.v1'
+export const SETTINGS_KEY = `${APP_SLUG}.settings.v1`
 
 export const BAR_CHOICES = [1, 2, 4] as const
 export type Bars = typeof BAR_CHOICES[number]
@@ -24,8 +25,6 @@ export const LEVEL_MAX_DB = 12
 export interface Settings {
   /** The input last chosen; null is "System default", an explicit choice of its own. */
   deviceId: string | null
-  /** Its label then, so a "not connected" message can name it. */
-  deviceLabel: string | null
   /** 0-based input channel the guitar is on. */
   channel: number
   toneMode: ToneMode
@@ -47,7 +46,6 @@ export interface Settings {
 // where a slow blues and a space-rock groove both live.
 export const DEFAULT_SETTINGS: Readonly<Settings> = {
   deviceId: null,
-  deviceLabel: null,
   channel: 0,
   toneMode: 'amp',
   inputGainDb: 0,
@@ -86,7 +84,6 @@ export function parseSettings(raw: unknown): Settings {
   const bars = BAR_CHOICES.find(b => b === raw.bars) ?? d.bars
   return {
     deviceId: str(raw.deviceId),
-    deviceLabel: str(raw.deviceLabel),
     channel: int(raw.channel, 0, 1, d.channel),
     toneMode: raw.toneMode === 'amp' || raw.toneMode === 'bypass' ? raw.toneMode : d.toneMode,
     inputGainDb: num(raw.inputGainDb, GAIN_MIN_DB, GAIN_MAX_DB, d.inputGainDb),

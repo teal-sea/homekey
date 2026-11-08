@@ -1,9 +1,9 @@
-// Adapted from ModalRuns (same author): computeFretboard in src/utils/musicTheory.ts.
+// Adapted from the author's Modal Runs app (modalruns.com).
 //
 // ─── Fretboard ──────────────────────────────────────────────────────
 // Every position on the neck is computed from the tuning and the fret number,
-// never written down (ModalRuns golden rule 2: an engine that computes frets
-// cannot hallucinate one). Pure and deterministic: same input, same board.
+// never stored, so no table of frets can disagree with the tuning. Pure and
+// deterministic: same input, same board.
 
 import { intervalName, intervalSpeller, midiOctave, noteName, toPc, type PitchClass } from './notes'
 import { characterSemitones, getScale, keyUsesFlats, type ScaleKey } from './scales'

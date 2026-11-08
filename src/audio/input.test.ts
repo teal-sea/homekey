@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  InputError, acceptedSettings, audioInputsFrom, checkChannel, dbToGain, deviceVanished,
+  InputError, acceptedSettings, audioInputsFrom, checkChannel, deviceVanished,
   inputConstraints, inputErrorFor, levels, openInput, resolveChannelCount,
 } from './input'
 import type { Graph } from './graph'
@@ -142,12 +142,6 @@ describe('channels and levels', () => {
     expect(() => checkChannel(1, 1)).toThrow(RangeError)
   })
 
-  it('converts dB to gain', () => {
-    expect(dbToGain(0)).toBe(1)
-    expect(dbToGain(20)).toBeCloseTo(10)
-    expect(dbToGain(-6)).toBeCloseTo(0.501, 3)
-  })
-
   it('measures rms and peak', () => {
     const buf = new Float32Array([0.5, -0.5, 0.5, -0.5])
     expect(levels(buf)).toEqual({ rms: 0.5, peak: 0.5 })
@@ -207,7 +201,7 @@ function fakeGraph() {
     currentTime: 0,
     createMediaStreamSource: vi.fn(() => node('source')),
     createChannelSplitter: vi.fn((count: number) => node('splitter', { numberOfOutputs: count })),
-    createGain: () => node('gain', { gain: { value: 1, setTargetAtTime: vi.fn() } }),
+    createGain: () => node('gain', { gain: { value: 1 } }),
     createAnalyser: () => node('analyser', {
       fftSize: 2048,
       smoothingTimeConstant: 0.8,
@@ -330,15 +324,6 @@ describe('openInput', () => {
     expect(session.meter()).toEqual({ rms: 0.25, peak: 0.25 })
     ctx.state = 'suspended'
     expect(session.meter()).toEqual({ rms: 0, peak: 0 })
-    session.close()
-  })
-
-  it('sets trim as a smoothed gain', async () => {
-    const { session } = await openStereo()
-    session.setTrimDb(6)
-    const call = (session.mono.gain.setTargetAtTime as unknown as ReturnType<typeof vi.fn>).mock.calls[0]
-    expect(call[0]).toBeCloseTo(1.995, 3)
-    expect(() => session.setTrimDb(NaN)).toThrow(RangeError)
     session.close()
   })
 

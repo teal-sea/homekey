@@ -2,9 +2,9 @@
 // Opens one audio-input device on the graph's context and splits it into the
 // two feeds the rig needs (SPEC "Audio graph"):
 //
-//   MediaStreamSource ─┬─ ChannelSplitter ── selected channel ─ mono (trim) ─┬─ meter
-//                      │                                                    ├─ note follower (pre-amp)
-//                      │                                                    └─ tone (amp)
+//   MediaStreamSource ─┬─ ChannelSplitter ── selected channel ─ mono ─┬─ meter
+//                      │                                             ├─ note follower (pre-amp)
+//                      │                                             └─ tone (amp)
 //                      └─ stereo (whole source, for bypass of already-processed input)
 //
 // The input is an interface with a guitar in it, not a laptop mic, so every
@@ -13,10 +13,10 @@
 // the amp model should see. What the browser actually accepted is read back
 // into `settings`, because a request is not a guarantee.
 //
-// No silent fallback (SPEC rule 5). ModalRuns retried the system default when
-// a remembered device had vanished; a rig must not, because "I picked my
-// interface and it recorded the laptop mic" is the worst failure a recorder
-// can have. Every failure throws InputError and the caller decides.
+// No silent fallback (SPEC rule 5). Retrying the system default when a
+// remembered device has vanished is a common convenience; a rig must not,
+// because "I picked my interface and it recorded the laptop mic" is the worst
+// failure a recorder can have. Every failure throws InputError and the caller decides.
 
 import type { Graph } from './graph'
 import { measureRms } from './pitch'
@@ -197,8 +197,6 @@ export function checkChannel(index: number, channelCount: number): number {
   return index
 }
 
-export const dbToGain = (db: number): number => 10 ** (db / 20)
-
 export function levels(buf: Float32Array): { rms: number; peak: number } {
   let peak = 0
   for (let i = 0; i < buf.length; i++) {
@@ -216,12 +214,11 @@ export interface InputSession {
   /** Live: reflects the last setChannel(). */
   readonly selectedChannel: number
   setChannel(i: number): void
-  /** Selected channel after trim: feeds analysis and the amp. */
+  /** The selected channel alone: feeds the meter, the note follower and the amp. */
   mono: GainNode
   /** Whole source, for bypass of already-processed input (a GT-1, say). */
   stereo: GainNode
-  setTrimDb(db: number): void
-  /** Mono path, pre-amp, post-trim. Zeros while the context is not running. */
+  /** The mono path, before the amp. Zeros while the context is not running. */
   meter(): { rms: number; peak: number }
   /** What the browser ACCEPTED, read back from the track. */
   settings: AcceptedSettings
@@ -230,7 +227,6 @@ export interface InputSession {
   close(): void
 }
 
-const TRIM_SMOOTHING = 0.01 // seconds; a dragged trim knob must not zipper
 const METER_SIZE = 2048     // ~46 ms at 44.1 kHz, plenty for a UI-rate meter
 
 /**
@@ -241,7 +237,7 @@ export async function openInput(graph: Graph, deviceId: string | null, channelCo
   const md = globalThis.navigator?.mediaDevices
   if (!md?.getUserMedia) {
     throw new InputError('unsupported',
-      'This browser cannot open audio inputs on this page. Use a current Chrome, Edge, Firefox or Safari over https or localhost.')
+      'This browser cannot open audio inputs on this page. Use a current Chrome or Edge, over https or localhost.')
   }
   // An empty ID is a device the browser has not named yet (no permission).
   // Treating it as "default" would be exactly the silent fallback rule 5 bans.
@@ -344,10 +340,6 @@ export async function openInput(graph: Graph, deviceId: string | null, channelCo
     },
     mono,
     stereo,
-    setTrimDb(db) {
-      if (!Number.isFinite(db)) throw new RangeError(`trim must be a finite dB value, got ${db}`)
-      mono.gain.setTargetAtTime(dbToGain(db), ctx.currentTime, TRIM_SMOOTHING)
-    },
     meter() {
       // A suspended context leaves the analyser holding its last block.
       if (closed || ctx.state !== 'running') return { rms: 0, peak: 0 }

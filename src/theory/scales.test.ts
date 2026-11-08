@@ -48,7 +48,7 @@ describe('the scale catalogue', () => {
 })
 
 describe('the character note', () => {
-  it('matches ModalRuns\' table', () => {
+  it('is pinned for every scale', () => {
     expect(Object.fromEntries(SCALE_KEYS.map(k => [k, SCALES[k].character]))).toEqual({
       ionian: '7', dorian: '6', phrygian: 'b2', lydian: 'b5', mixolydian: 'b7', aeolian: 'b6', locrian: 'b5',
       major_penta: '6', minor_penta: 'R', blues: 'b5', harmonic_minor: '7',

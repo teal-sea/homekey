@@ -140,12 +140,12 @@ describe('scaleUsesFlats: one letter per degree, as the key signature has it', (
     expect(spelled(Db, 'blues')).toBe('C# E F# G G# B')
   })
 
-  it('lets the root decide a tie, as ModalRuns does (D harmonic minor cannot have both Bb and C#)', () => {
+  it('lets the root decide a tie (D harmonic minor cannot have both Bb and C#)', () => {
     expect(scaleUsesFlats(D, SCALES.harmonic_minor.intervals)).toBe(rootPrefersFlats(D))
     expect(spelled(D, 'harmonic_minor')).toBe('D E F G A Bb Db')
   })
 
-  it('takes the root fallback from ModalRuns\' table on the default key names', () => {
+  it('takes the root fallback from the default key names', () => {
     expect([...Array(12)].map((_, pc) => rootPrefersFlats(pc))).toEqual(
       [true, true, true, true, false, true, false, true, true, false, true, false])
   })

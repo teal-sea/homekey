@@ -1,10 +1,10 @@
-// Adapted from ModalRuns (same author): SCALES in src/utils/musicTheory.ts and the
-// character table (characterInterval) in src/utils/theory.ts.
+// Adapted from the author's Modal Runs app (modalruns.com): its scale and
+// character-note tables.
 //
 // ─── Scales ─────────────────────────────────────────────────────────
 // The scales a blues and space-rock player reaches for: the seven modes, the two
-// pentatonics, the blues scale and harmonic minor. Keys match ModalRuns so code
-// and saved settings port across. Adding a scale is one entry here plus a test.
+// pentatonics, the blues scale and harmonic minor. The keys are the original's,
+// so code ports across. Adding a scale is one entry here plus a test.
 
 import {
   intervalSemitones, noteName, scaleFormula, scaleUsesFlats, spellInterval, toPc,
@@ -29,8 +29,8 @@ export interface ScaleDef {
   character: IntervalName
 }
 
-// Picker order, as ModalRuns' catalogue: the modes in their usual order, then the
-// pentatonics, blues and harmonic minor.
+// Picker order: the modes in their usual order, then the pentatonics, blues and
+// harmonic minor.
 export const SCALE_KEYS: readonly ScaleKey[] = [
   'ionian', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'aeolian', 'locrian',
   'major_penta', 'minor_penta', 'blues', 'harmonic_minor',

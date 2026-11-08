@@ -36,8 +36,15 @@ export function say(node: HTMLElement, text: string | null): void {
   show(node, text !== null && text !== '')
 }
 
+/**
+ * A toggle keeps one name; its state lives in aria-pressed. A `.toggle-state`
+ * tag inside (aria-hidden, so the name stays fixed) shows the state to the eye
+ * as "on" or "off".
+ */
 export function setPressed(button: HTMLButtonElement, on: boolean): void {
   button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  const tag = button.querySelector('.toggle-state')
+  if (tag) setText(tag, on ? 'on' : 'off')
 }
 
 export function replaceOptions(select: HTMLSelectElement, options: { value: string; label: string; disabled?: boolean }[], value: string): void {

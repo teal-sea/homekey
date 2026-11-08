@@ -1,6 +1,6 @@
 // ─── Note follower ──────────────────────────────────────────────────
-// Adapted from ModalRuns (same author): the ~20×/s readPitch poll and its
-// commit rule in src/App.tsx. Polls an analyser on the pre-amp mono input
+// Adapted from the author's Modal Runs app (modalruns.com): the ~20×/s pitch
+// poll and its commit rule. Polls an analyser on the pre-amp mono input
 // (SPEC rule 3: amp distortion and effects never reach it) and reports the
 // note the player is holding, so the fretboard can light it.
 //
@@ -32,7 +32,7 @@ const CLEAR_AFTER_EMPTY = 10
 // ─── Commit rule (pure) ───
 // A note must be read twice in a row to commit (kills flicker from pick
 // transients); it clears after CLEAR_AFTER_EMPTY empty reads in a row. An
-// empty read in between breaks the pair, exactly as in ModalRuns.
+// empty read in between breaks the pair, exactly as in the original.
 
 export interface Committer {
   /** Feed one poll's reading. Returns true when the committed note changed. */

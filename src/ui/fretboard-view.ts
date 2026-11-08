@@ -30,7 +30,7 @@ export interface FretboardView {
 }
 
 // ─── Colours ────────────────────────────────────────────────────────
-// The six the integrator themes, plus a few quieter ones with the same pattern.
+// Seven are themed by styles.css (--fb-*); the rest draw with their fallbacks.
 // Default contrast: white labels on root and scale dots, dark on the bright two.
 const COLOURS = {
   wood: 'var(--fb-wood, #35261b)',
@@ -187,6 +187,21 @@ export function layoutFretboard(cells: FretboardCells, opts: FretboardViewOption
   }
 }
 
+/**
+ * How many heard positions lie left and right of the visible part of a neck
+ * that scrolls sideways. A ring whose centre is on screen counts as seen.
+ */
+export function offscreenHeard(xs: readonly number[], pxPerUnit: number, scrollLeft: number, visibleWidth: number): { left: number; right: number } {
+  let left = 0
+  let right = 0
+  for (const x of xs) {
+    const px = x * pxPerUnit
+    if (px < scrollLeft) left++
+    else if (px > scrollLeft + visibleWidth) right++
+  }
+  return { left, right }
+}
+
 // ─── DOM ────────────────────────────────────────────────────────────
 const SVG_NS = 'http://www.w3.org/2000/svg'
 const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif'
@@ -284,7 +299,36 @@ export function createFretboardView(container: HTMLElement): FretboardView {
   const heardLayer = svgEl(doc, 'g', { class: 'fb-heard-layer' })
   svg.append(boardLayer, heardLayer)
   viewport.append(svg)
-  container.append(viewport)
+
+  // On a narrow screen the neck scrolls, and the other places the heard note
+  // sits can be out of view with nothing to say they exist. These edge tags
+  // count them. aria-hidden: the svg's label already says "N places".
+  const more = (side: 'left' | 'right'): HTMLSpanElement => {
+    const tag = doc.createElement('span')
+    tag.className = `fb-more fb-more--${side}`
+    tag.setAttribute('aria-hidden', 'true')
+    tag.hidden = true
+    return tag
+  }
+  const moreLeft = more('left')
+  const moreRight = more('right')
+  const wrap = doc.createElement('div')
+  wrap.className = 'fb-wrap'
+  wrap.append(viewport, moreLeft, moreRight)
+  container.append(wrap)
+  let heardXs: number[] = []
+
+  const syncMore = () => {
+    const width = svg.getBoundingClientRect().width
+    const { left, right } = width > 0
+      ? offscreenHeard(heardXs, width / VIEW_WIDTH, viewport.scrollLeft, viewport.clientWidth)
+      : { left: 0, right: 0 }
+    moreLeft.hidden = left === 0
+    moreRight.hidden = right === 0
+    moreLeft.textContent = `← ${left} more`
+    moreRight.textContent = `${right} more →`
+  }
+  viewport.addEventListener('scroll', syncMore, { passive: true })
 
   // A neck narrower than its minimum scrolls sideways; a scroll box needs a
   // keyboard way in, but only while it actually scrolls (no dead tab stop).
@@ -299,7 +343,7 @@ export function createFretboardView(container: HTMLElement): FretboardView {
       viewport.removeAttribute('aria-label')
     }
   }
-  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(syncScrollable)
+  const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { syncScrollable(); syncMore() })
   observer?.observe(viewport)
 
   let boardKey: string | null = null
@@ -319,13 +363,16 @@ export function createFretboardView(container: HTMLElement): FretboardView {
       if (boardChanged || nextHeard !== heardKey) {
         drawHeard(doc, heardLayer, layout)
         heardKey = nextHeard
+        heardXs = layout.heard.map(h => h.x)
+        syncMore()
       }
       if (svg.getAttribute('aria-label') !== layout.ariaLabel) svg.setAttribute('aria-label', layout.ariaLabel)
       if (boardChanged) syncScrollable()
     },
     destroy() {
       observer?.disconnect()
-      viewport.remove()
+      viewport.removeEventListener('scroll', syncMore)
+      wrap.remove()
     },
   }
 }

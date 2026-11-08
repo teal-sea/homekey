@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { decodeWav } from '../export/wav'
 import type { Graph } from './graph'
 import {
-  LOOPER_IDLE, buildTakeFiles, clampLatencyMs, createLooper, defaultLatencyMs, looperReducer, mixLayers,
-  type Looper, type LooperEvent, type LooperMode, type LooperState,
+  LOOPER_IDLE, buildTakeFiles, clampLatencyMs, createLooper, defaultLatencyMs, looperReducer, mixLayers, packTake,
+  takeArchiveName, type Looper, type LooperEvent, type LooperMode, type LooperState,
 } from './looper'
 import type { Transport, TransportParams } from './transport'
+import { readZip } from '../../tests/zip-reader'
+import { APP_SLUG } from '../app-name'
 
 // ─── Reducer ───
 
@@ -125,6 +127,26 @@ describe('take files', () => {
     const both = buildTakeFiles(base, over, { ...info, overdubLatencyMs: 40 }, meta)
     expect(JSON.parse(await both[3].blob.text()).overdubLatencyMs).toBe(40)
   })
+
+  it('names the zip for the local export time and the tempo', () => {
+    expect(takeArchiveName(new Date(2026, 10, 8, 19, 5, 59), 120)).toBe(`${APP_SLUG}-take-2026-11-08-1905-120bpm.zip`)
+    expect(takeArchiveName(new Date(2027, 0, 2, 3, 4), 97.5)).toBe(`${APP_SLUG}-take-2027-01-02-0304-97.5bpm.zip`)
+    expect(takeArchiveName(new Date(2027, 0, 2, 3, 4), 100 / 3)).toBe(`${APP_SLUG}-take-2027-01-02-0304-33.33bpm.zip`)
+  })
+
+  it('packs the take files into one zip, byte for byte and in order', async () => {
+    const files = buildTakeFiles(base, over, info, meta)
+    const when = new Date(2026, 10, 8, 19, 5)
+    const archive = await packTake(files, info.bpm, when)
+    expect(archive.name).toBe(`${APP_SLUG}-take-2026-11-08-1905-97bpm.zip`)
+    expect(archive.blob.type).toBe('application/zip')
+    const unzipped = readZip(new Uint8Array(await archive.blob.arrayBuffer()))
+    expect(unzipped.map((f) => f.name)).toEqual(['base.wav', 'overdub.wav', 'mix.wav', 'take.json'])
+    for (const [i, f] of files.entries()) {
+      expect(Array.from(unzipped[i].data)).toEqual(Array.from(new Uint8Array(await f.blob.arrayBuffer())))
+    }
+    expect(decodeWav(unzipped[1].data.slice().buffer as ArrayBuffer).channels.map((c) => c.length)).toEqual([6, 6])
+  })
 })
 
 describe('latency', () => {
@@ -140,8 +162,8 @@ describe('latency', () => {
 })
 
 // ─── Looper against a fake context ───
-// Checks WHAT gets armed and scheduled at WHICH frame. Real audio is verified
-// in Chromium (see the report); this pins the arithmetic.
+// Checks WHAT gets armed and scheduled at WHICH frame. Real audio is covered
+// by tests/e2e/rig.spec.ts in Chromium; this pins the arithmetic.
 
 const SR = 48000
 const LF = 4800 * 4 // keeps chunk math readable: 4.69 chunks per loop
@@ -171,8 +193,12 @@ function setup() {
     linearRampToValueAtTime() { return this },
   })
   const node = () => ({ connect: (n: unknown) => n, disconnect() {} })
+  const stateListeners = new Set<() => void>()
   const ctx = {
     sampleRate: SR, currentTime: 0, outputLatency: 0.01, baseLatency: 0.005,
+    state: 'running' as AudioContextState,
+    addEventListener: (type: string, cb: () => void) => { if (type === 'statechange') stateListeners.add(cb) },
+    removeEventListener: (type: string, cb: () => void) => { if (type === 'statechange') stateListeners.delete(cb) },
     audioWorklet: { addModule: vi.fn(async () => {}) },
     createGain: () => ({ ...node(), gain: param() }),
     createBuffer: (channels: number, length: number) => {
@@ -231,7 +257,13 @@ function setup() {
       reply({ type: 'chunk', id, offset: off, channels: [ch, ch.slice()] })
     }
   }
-  return { ctx, graph, transport, posted, sources, at, reply, deliver, frameOf, origin: () => origin }
+  // What the browser does on suspend(), resume() or an OS interruption: the
+  // state flips, then 'statechange' fires. The clock does not move meanwhile.
+  const setState = (s: AudioContextState): void => {
+    ctx.state = s
+    for (const cb of [...stateListeners]) cb()
+  }
+  return { ctx, graph, transport, posted, sources, at, reply, deliver, frameOf, setState, stateListeners, origin: () => origin }
 }
 
 describe('createLooper (fake context)', () => {
@@ -321,6 +353,11 @@ describe('createLooper (fake context)', () => {
     expect(files.map((f) => f.name)).toEqual(['base.wav', 'overdub.wav', 'mix.wav', 'take.json'])
     const lengths = await Promise.all(files.slice(0, 3).map(async (f) => decodeWav(await f.blob.arrayBuffer()).channels[0].length))
     expect(lengths).toEqual([LF, LF, LF])
+    // Export downloads the same files as one zip, named for the loop's own tempo.
+    const archive = await looper.exportArchive({ toneMode: 'bypass', modelName: null, channelLayout: 'stereo' }, null, new Date(2026, 10, 8, 19, 5))
+    expect(archive.name).toBe(`${APP_SLUG}-take-2026-11-08-1905-60bpm.zip`)
+    expect(readZip(new Uint8Array(await archive.blob.arrayBuffer())).map((f) => f.data.length))
+      .toEqual(await Promise.all(files.map(async (f) => (await f.blob.arrayBuffer()).byteLength)))
 
     looper.undo()
     expect(overMain.stopAt).not.toBeNull()
@@ -388,6 +425,89 @@ describe('createLooper (fake context)', () => {
     env.at(100_000_000)
     expect(looper.snapshot().state).toBe('idle')
     expect(env.sources.every((s) => s.stopAt !== null)).toBe(true)
+  })
+
+  it('discards a base take when the context is suspended mid-take, and unlocks', async () => {
+    // The worklet cannot see this gap: the context clock freezes with it, so
+    // the frames stay contiguous. Only the context's state says input was lost.
+    const env = setup()
+    const looper = await createLooper(env.graph, env.transport)
+    looper.record()
+    const origin = env.origin() as number
+    env.at(origin + 4096 + LAT)
+    expect(looper.snapshot().state).toBe('recording-base')
+    env.reply({ type: 'chunk', id: 1, offset: 0, channels: [new Float32Array(4096), new Float32Array(4096)] })
+    env.setState('suspended')
+    expect(looper.snapshot()).toMatchObject({ state: 'error', hasBase: false, locked: false })
+    expect(looper.snapshot().error).toMatch(/interrupted/)
+    expect(env.posted.at(-1)).toEqual({ type: 'cancel', id: 1 })
+    expect(env.transport.running()).toBe(false)
+    expect(env.sources.every((s) => s.stopAt !== null)).toBe(true) // the first-pass chunk never plays
+    // Resuming does not bring the take back.
+    env.setState('running')
+    expect(looper.snapshot().state).toBe('error')
+  })
+
+  it('counts a suspend during the count-in or an armed overdub as an interruption too, and keeps the base', async () => {
+    const env = setup()
+    const looper = await createLooper(env.graph, env.transport)
+    looper.record()
+    env.setState('suspended')
+    expect(looper.snapshot()).toMatchObject({ state: 'error', hasBase: false })
+    env.setState('running')
+    looper.stop()
+
+    await recordBase(env, looper)
+    looper.overdub()
+    expect(looper.snapshot().state).toBe('overdub-armed')
+    env.setState('interrupted' as AudioContextState) // Safari's word for an OS interruption
+    expect(looper.snapshot()).toMatchObject({ state: 'error', hasBase: true, hasOverdub: false, locked: true })
+    env.setState('running')
+    looper.play()
+    expect(looper.snapshot()).toMatchObject({ state: 'playing', hasBase: true, error: null })
+  })
+
+  it('lets a loop that is only playing ride out a suspend: nothing is being captured', async () => {
+    const env = setup()
+    const looper = await createLooper(env.graph, env.transport)
+    await recordBase(env, looper)
+    env.setState('suspended')
+    env.setState('running')
+    expect(looper.snapshot()).toMatchObject({ state: 'playing', hasBase: true, error: null })
+  })
+
+  it('stops listening to the context when disposed', async () => {
+    const env = setup()
+    const looper = await createLooper(env.graph, env.transport)
+    expect(env.stateListeners.size).toBe(1)
+    looper.dispose()
+    expect(env.stateListeners.size).toBe(0)
+  })
+
+  it('exports the overdub with its own tone description when it was recorded differently', async () => {
+    const env = setup()
+    const looper = await createLooper(env.graph, env.transport)
+    const { origin } = await recordBase(env, looper)
+    const amp = { toneMode: 'amp' as const, modelName: 'identity.nam', channelLayout: 'input channel 1 through the amp, mono on L and R' }
+    const bypass = { toneMode: 'bypass' as const, modelName: null, channelLayout: 'input channels 1 and 2 as L and R, unprocessed' }
+    const takeJson = async (files: { name: string; blob: Blob }[]) =>
+      JSON.parse(await (files.find((f) => f.name === 'take.json') as { blob: Blob }).blob.text())
+
+    // No overdub yet: an overdub description has nothing to describe.
+    expect(await takeJson(await looper.exportFiles(amp, bypass))).not.toHaveProperty('overdub')
+
+    looper.overdub()
+    env.at(origin + 2 * LF)
+    env.deliver(2)
+    env.at(origin + 3 * LF + LAT + 5)
+    env.reply({ type: 'done', id: 2, startFrame: origin + 2 * LF + LAT, frames: LF, discontinuous: false })
+    expect(looper.snapshot().hasOverdub).toBe(true)
+
+    const mixed = await takeJson(await looper.exportFiles(amp, bypass))
+    expect(mixed).toMatchObject({ ...amp, overdub: bypass })
+    // Recorded the same way: one description covers both.
+    expect(await takeJson(await looper.exportFiles(amp, { ...amp }))).not.toHaveProperty('overdub')
+    expect(await takeJson(await looper.exportFiles(amp))).not.toHaveProperty('overdub')
   })
 
   it('clamps latency and uses the new offset for the next take', async () => {

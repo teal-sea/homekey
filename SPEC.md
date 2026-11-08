@@ -1,12 +1,14 @@
-# Guitar rig: milestone 1 spec
+# Homekey: milestone 1 spec
 
-A browser guitar rig. Plug a guitar into an audio interface, get an amp sound from a
+Homekey is an instrument rig in the browser, guitar first. Milestone 1: plug a guitar into an audio interface, get an amp sound from a
 Neural Amp Modeler (NAM) model, see the key and mode on a fretboard that lights the note
 you play, and record a loop with one overdub. Everything runs in the browser. No accounts,
 no analytics, no server, no network calls except same-origin static files. Audio never
 leaves the device.
 
-Working name only: "Guitar Rig". The product name is not chosen.
+The name lives in `src/app-name.ts` (plus `index.html` and `package.json`, which a test keeps
+in step). It was renamed from the working name "Guitar Rig" on 2026-11-08, because Native
+Instruments sells a product with that name.
 
 ## Hard rules
 
@@ -19,8 +21,9 @@ Working name only: "Guitar Rig". The product name is not chosen.
 5. **No silent device fallback.** If the selected input disappears or fails, show an error
    and stop; never switch to another device by yourself.
 6. **No model or IR loads while the transport runs.** A NAM model load freezes the whole
-   audio thread for about 80–130 ms (measured 2026-11-08, Chromium 153). The UI disables
-   loading unless the looper is idle and the transport stopped.
+   audio thread for 80–122 ms (measured 2026-11-08, Chromium 153). IR loads were not
+   measured; they wait for Stop as a matter of policy. The UI disables loading unless the
+   looper is idle and the transport stopped.
 7. **Render quantum must be 128.** At 256 the NAM worklet silently passes the dry input
    through (measured). Create the context without `renderSizeHint`; if
    `ctx.renderQuantumSize` exists and is not 128, show a warning and treat the amp as bypassed.
@@ -34,8 +37,8 @@ Working name only: "Guitar Rig". The product name is not chosen.
 
 ```
 getUserMedia stream (echoCancellation, noiseSuppression, autoGainControl all false)
-  └─ MediaStreamSource ─┬─ ChannelSplitter ── selected channel (mono) ─ inputTrim ─┬─ analyser (pitch, pre-amp)
-                        │                                                         └─ toneIn
+  └─ MediaStreamSource ─┬─ ChannelSplitter ── selected channel (mono) ─┬─ analyser (pitch, pre-amp)
+                        │                                             └─ toneIn
                         └─ bypassIn (stereo, for already-processed input such as a GT-1)
 
 toneIn ─ NamNode (mono) ─ [IR convolver, optional] ─ toneOut (gain)
@@ -48,16 +51,17 @@ guitarBus ─┬─ recorder worklet (2 ch)          ← the ONLY thing recorded
 loopBus  ─ master        (loop playback)
 droneBus ─ master
 clickBus ─ master
-master ─ limiter (DynamicsCompressor, gentle) ─ ctx.destination
+master ─ limiter (DynamicsCompressor: -3 dB threshold, 12:1, a safety net) ─ ctx.destination
 ```
 
 `master` has a panic mute. No reverb is added by the app in M1.
 
-## Modules and owners
+## Modules
 
 | File | Exports | Notes |
 |---|---|---|
-| `src/audio/graph.ts` | `createGraph`, `Graph` | Context + all buses above. Written first; others consume it |
+| `src/app-name.ts` | `APP_NAME`, `APP_SLUG` | The working name: heading, settings key, export file names |
+| `src/audio/graph.ts` | `createGraph`, `Graph`, `rampTo` | Context + all buses above, and the one gain glide |
 | `src/audio/input.ts` | `listInputs`, `openInput`, `InputSession` | Device, channel select, accepted settings, device loss |
 | `src/audio/pitch.ts` | `detectPitch`, `measureRms`, `freqToMidi` | McLeod pitch method, pure |
 | `src/audio/analysis.ts` | `createNoteFollower` | Polls the analyser, commit rule, emits notes |
@@ -67,6 +71,7 @@ master ─ limiter (DynamicsCompressor, gentle) ─ ctx.destination
 | `src/audio/looper.ts` | `createLooper`, `Looper`, `looperReducer` | Base + one overdub, undo, clear, export |
 | `public/worklets/recorder.js` | processor `rig-recorder` | Frame-exact capture, chunks to main thread |
 | `src/export/wav.ts` | `encodeWav`, `decodeWav` | 16- or 24-bit PCM, pure |
+| `src/export/zip.ts` | `zipStore`, `crc32` | Store-only ZIP for the export, pure |
 | `src/theory/*.ts` | notes, scales, fretboard | Pure, deterministic |
 | `src/ui/*.ts`, `src/main.ts`, `src/styles.css` | the page | Vanilla TypeScript and DOM, no framework |
 
@@ -108,7 +113,9 @@ master ─ limiter (DynamicsCompressor, gentle) ─ ctx.destination
 - Undo removes the overdub. Clear stops and deletes everything.
 - Export: `base.wav` and `overdub.wav`, identical length and origin, plus `mix.wav`.
   Also `take.json` with bpm, beatsPerBar, bars, sampleRate, loopFrames, latencyMs, channel
-  layout, tone mode, model name.
+  layout, tone mode, model name. All of them in one download, a store-only zip named
+  `<slug>-take-<local date>-<HHMM>-<bpm>bpm.zip` (slug from `src/app-name.ts`, now `homekey`). *(Changed 2026-11-08: four separate
+  downloads, which a browser may stop to ask about after the first.)*
 
 ## Recorder worklet protocol (`rig-recorder`)
 
@@ -135,13 +142,15 @@ replaces the take in progress.
 ## Tests
 
 - `vitest` unit tests next to each pure module: theory, pitch, wav round trip, transport grid
-  (no drift over 10,000 loops), looper reducer.
+  (exact beat offsets), the click scheduler (every click on the grid through 200 loops, and a
+  main-thread stall skips beats rather than playing them late), looper reducer.
 - `playwright` browser tests against `vite preview` with the production CSP headers and
   Chromium's fake audio device: the page loads with no CSP violations, the engine attaches,
-  the test model loads, a base loop and an overdub record, and the exported WAVs decode with
-  identical lengths.
+  the test model loads, a base loop and an overdub record, and the export arrives as one zip
+  whose WAVs decode with identical lengths; a unit-impulse cab IR loads and a take recorded
+  through it is not silent.
 - `tests/fixtures/identity.nam` is an authored, trivially small NAM model owned by this repo,
-  so tests never depend on third-party captures.
+  so tests never depend on third-party captures. The IR test writes its unit impulse itself.
 
 ## Out of scope for M1
 

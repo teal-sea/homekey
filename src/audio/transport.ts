@@ -11,7 +11,7 @@
 // Origin = the first downbeat AFTER the count-in, so loop boundary 0 is where
 // a base take begins. The count-in bar(s) sit just before it.
 
-import type { Graph } from './graph'
+import { rampTo, type Graph } from './graph'
 
 // ─── Grid math (pure) ───
 
@@ -146,13 +146,13 @@ const LOOKAHEAD_S = 0.1
 const START_LEAD_S = 0.1
 // A beat closer than this to "now" is skipped, not played late (after a stall).
 const MIN_LEAD_S = 0.005
-const RAMP = 0.015
 
 interface Voice { freq: number; type: OscillatorType; peak: number }
 
-// Click voice adapted from ModalRuns (same author): sine 1200/800 Hz blips,
-// 0.3/0.15 peak, 60 ms exponential decay. The count-in gets a triangle voice
-// at different pitches so the player can hear where the take begins.
+// Click voice adapted from the author's Modal Runs app (modalruns.com): sine
+// 1200/800 Hz blips, 0.3/0.15 peak, 60 ms exponential decay. The count-in gets
+// a triangle voice at different pitches so the player can hear where the take
+// begins.
 function voiceFor(b: Beat): Voice {
   if (b.countIn) return { type: 'triangle', freq: b.beat === 0 ? 1600 : 1000, peak: b.beat === 0 ? 0.35 : 0.2 }
   return { type: 'sine', freq: b.beat === 0 ? 1200 : 800, peak: b.beat === 0 ? 0.3 : 0.15 }
@@ -260,13 +260,6 @@ export function createTransport(graph: Graph, options: TransportOptions): Transp
   const changed = (): boolean =>
     wanted.bpm !== active.bpm || wanted.beatsPerBar !== active.beatsPerBar || wanted.bars !== active.bars
 
-  function setGain(param: AudioParam, value: number): void {
-    const now = ctx.currentTime
-    param.cancelScheduledValues(now)
-    param.setValueAtTime(param.value, now)
-    param.linearRampToValueAtTime(value, now + RAMP)
-  }
-
   function stop(): void {
     if (timer !== null) clearInterval(timer)
     timer = null
@@ -310,13 +303,13 @@ export function createTransport(graph: Graph, options: TransportOptions): Transp
     locked: () => isLocked,
     setClick(on) {
       clickEnabled = on
-      setGain(clickOut.gain, on ? clickLevel : 0)
+      rampTo(clickOut.gain, ctx, on ? clickLevel : 0)
     },
     clickOn: () => clickEnabled,
     setClickLevel(v) {
       clickLevel = Math.min(1, Math.max(0, Number.isFinite(v) ? v : 0))
-      if (clickEnabled) setGain(clickOut.gain, clickLevel)
-      setGain(countInOut.gain, clickLevel)
+      if (clickEnabled) rampTo(clickOut.gain, ctx, clickLevel)
+      rampTo(countInOut.gain, ctx, clickLevel)
     },
     framesNow,
     onBeat(cb) {

@@ -2,7 +2,7 @@
 // DOM is checked in the browser (no jsdom here).
 import { describe, expect, it } from 'vitest'
 import { computeFretboard } from '../theory/fretboard'
-import { describeFretboard, layoutFretboard } from './fretboard-view'
+import { describeFretboard, layoutFretboard, offscreenHeard } from './fretboard-view'
 
 const A = 9
 const aMinor = computeFretboard({ rootPc: A, scaleKey: 'aeolian' })
@@ -97,5 +97,22 @@ describe('describeFretboard', () => {
 
   it('falls back to the root alone without a scale key', () => {
     expect(describeFretboard(aMinor, { heardMidi: null, showNames: false })).toBe('Fretboard, root A, frets 0 to 15. No note heard.')
+  })
+})
+
+describe('offscreenHeard', () => {
+  // A3 in A minor: frets 2, 7 and 12. A phone shows the neck at 720 px of a
+  // 1016-unit drawing and scrolls; the tags count what is out of view.
+  const xs = layoutFretboard(aMinor, { heardMidi: 57, showNames: false }).heard.map(h => h.x)
+  const scale = 720 / layoutFretboard(aMinor, { heardMidi: null, showNames: false }).width
+
+  it('counts the places right of the view at the start of the neck, left of it at the far end', () => {
+    expect(offscreenHeard(xs, scale, 0, 324)).toEqual({ left: 0, right: 2 })
+    expect(offscreenHeard(xs, scale, 720 - 324, 324)).toEqual({ left: 2, right: 0 })
+  })
+
+  it('counts nothing when the whole neck fits, or nothing is heard', () => {
+    expect(offscreenHeard(xs, 1, 0, 1016)).toEqual({ left: 0, right: 0 })
+    expect(offscreenHeard([], scale, 0, 324)).toEqual({ left: 0, right: 0 })
   })
 })

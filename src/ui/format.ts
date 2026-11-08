@@ -86,7 +86,7 @@ export function sampleRateWarning(input: AcceptedSettings, contextRate: number):
   return `The input runs at ${input.sampleRate} Hz and the audio engine at ${contextRate} Hz, so the browser resamples it.`
 }
 
-/** "Model: Plexi (trained at 48000 Hz)" plus a warning when the rates differ. */
+/** "plexi.nam (trained at 48000 Hz)", plus a warning when the rates differ. */
 export function modelLines(m: ModelSummary): { summary: string; warning: string | null } {
   const trained = m.expectedSampleRate > 0 ? `trained at ${m.expectedSampleRate} Hz` : 'training rate not stated'
   const summary = `${m.name} (${trained}${m.slimmable ? ', resizable' : ''})`

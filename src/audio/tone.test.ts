@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 // ?raw: Vite's text import, so the test needs no Node types (tsconfig has none)
 import IDENTITY from '../../tests/fixtures/identity.nam?raw'
 import {
@@ -242,6 +242,129 @@ describe('setLoadLock', () => {
     const tone = createTone(fakeGraph(true).graph)
     await tone.ready.catch(() => {})
     await expect(tone.setSlim(Number.NaN)).rejects.toThrow(RangeError)
+  })
+})
+
+describe('busy', () => {
+  it('is true from the moment a load is called until it settles, and says so through onChange', async () => {
+    const tone = createTone(fakeGraph(true).graph)
+    await tone.ready.catch(() => {})
+    const seen: boolean[] = []
+    tone.onChange(() => seen.push(tone.busy()))
+    expect(tone.busy()).toBe(false)
+
+    const load = tone.loadModel({ name: 'identity.nam', text: IDENTITY })
+    // Synchronously: a Record pressed in the same task as the file pick is already refused.
+    expect(tone.busy()).toBe(true)
+    await expect(load).rejects.toThrow(/failed to start/)
+    expect(tone.busy()).toBe(false)
+    expect(seen.at(0)).toBe(true)
+    expect(seen.at(-1)).toBe(false)
+  })
+
+  it('stays true across queued operations, IR and clear included, until the last one settles', async () => {
+    const tone = createTone(fakeGraph(true).graph)
+    await tone.ready.catch(() => {})
+    const flips: boolean[] = []
+    let last = tone.busy()
+    tone.onChange(() => { if (tone.busy() !== last) { last = tone.busy(); flips.push(last) } })
+
+    const a = tone.loadModel({ name: 'identity.nam', text: IDENTITY }).catch(() => {})
+    const b = tone.loadIr({ name: 'cab.wav', data: new ArrayBuffer(8) }).catch(() => {})
+    tone.clearIr()
+    expect(tone.busy()).toBe(true)
+    await a
+    expect(tone.busy()).toBe(true) // the IR load is still queued
+    await b
+    await new Promise(resolve => setTimeout(resolve, 0)) // clearIr's turn in the queue
+    expect(tone.busy()).toBe(false)
+    expect(flips).toEqual([true, false])
+  })
+
+  it('does not count a call the load lock refuses outright', async () => {
+    const tone = createTone(fakeGraph(true).graph)
+    await tone.ready.catch(() => {})
+    tone.setLoadLock(true)
+    let changes = 0
+    tone.onChange(() => changes++)
+    const refused = tone.loadModel({ name: 'identity.nam', text: IDENTITY })
+    expect(tone.busy()).toBe(false)
+    await expect(refused).rejects.toThrow(LOAD_LOCKED_MESSAGE)
+    expect(changes).toBe(0)
+  })
+})
+
+// ─── Cab IR ───
+// The convolver needs no engine, so an IR loads here even though the engine
+// cannot attach. Decoding is stubbed: Node has no decodeAudioData.
+
+class FakeConvolver extends FakeNode {
+  normalize = false
+  /** What `normalize` was when the buffer went in: the browser scales the IR at that moment. */
+  normalizeAtBuffer: boolean | null = null
+  private held: unknown = null
+  get buffer(): unknown { return this.held }
+  set buffer(b: unknown) { this.normalizeAtBuffer = this.normalize; this.held = b }
+}
+
+describe('loadIr and clearIr', () => {
+  function irSetup() {
+    const f = fakeGraph(true)
+    const convolvers: FakeConvolver[] = []
+    const decoded: ArrayBuffer[] = []
+    let next: { numberOfChannels: number; duration: number } | Error = { numberOfChannels: 1, duration: 0.2 }
+    Object.assign(f.ctx, {
+      decodeAudioData: async (data: ArrayBuffer) => {
+        decoded.push(data)
+        if (next instanceof Error) throw next
+        return next
+      },
+      createConvolver: () => { const c = new FakeConvolver(); convolvers.push(c); return c },
+    })
+    const tone = createTone(f.graph)
+    return { tone, convolvers, decoded, decodeAs: (d: typeof next) => { next = d } }
+  }
+
+  it('builds a normalising convolver from a decoded copy and reports the IR', async () => {
+    const { tone, convolvers, decoded } = irSetup()
+    await tone.ready.catch(() => {})
+    const file = new ArrayBuffer(16)
+    await expect(tone.loadIr({ name: 'cab.wav', data: file })).resolves.toEqual({ name: 'cab.wav', seconds: 0.2 })
+    expect(tone.ir()).toEqual({ name: 'cab.wav', seconds: 0.2 })
+    expect(convolvers).toHaveLength(1)
+    expect(convolvers[0].normalizeAtBuffer).toBe(true)
+    // decodeAudioData detaches what it gets; the caller's buffer must survive.
+    expect(decoded[0]).not.toBe(file)
+    expect(file.byteLength).toBe(16)
+    expect(tone.error()).toBeNull()
+  })
+
+  it('refuses what is not an IR and keeps the one already loaded', async () => {
+    const { tone, decodeAs } = irSetup()
+    await tone.ready.catch(() => {})
+    await tone.loadIr({ name: 'cab.wav', data: new ArrayBuffer(8) })
+
+    decodeAs({ numberOfChannels: 2, duration: 185.2 })
+    await expect(tone.loadIr({ name: 'song.wav', data: new ArrayBuffer(8) })).rejects.toThrow(/song.wav is 185.2 s long/)
+    decodeAs({ numberOfChannels: 4, duration: 1 })
+    await expect(tone.loadIr({ name: 'room.wav', data: new ArrayBuffer(8) })).rejects.toThrow(/4 channels/)
+    decodeAs(new Error('EncodingError'))
+    await expect(tone.loadIr({ name: 'notes.txt', data: new ArrayBuffer(8) })).rejects.toThrow('Could not read notes.txt as audio: EncodingError')
+    expect(tone.error()).toBe('Could not read notes.txt as audio: EncodingError')
+    expect(tone.ir()).toEqual({ name: 'cab.wav', seconds: 0.2 })
+  })
+
+  it('replaces the convolver on a second load and drops it on Clear IR', async () => {
+    const { tone, convolvers } = irSetup()
+    await tone.ready.catch(() => {})
+    await tone.loadIr({ name: 'a.wav', data: new ArrayBuffer(8) })
+    await tone.loadIr({ name: 'b.wav', data: new ArrayBuffer(8) })
+    expect(convolvers).toHaveLength(2)
+    expect(tone.ir()?.name).toBe('b.wav')
+
+    tone.clearIr()
+    await vi.waitFor(() => expect(tone.ir()).toBeNull())
+    expect(tone.busy()).toBe(false)
   })
 })
 

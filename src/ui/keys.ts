@@ -6,7 +6,9 @@
 
 import type { LooperMode } from '../audio/looper'
 
-export type ShortcutAction = 'record' | 'overdub' | 'stop' | 'play' | 'undo' | 'panic'
+// Esc (panic) is not here: main.ts handles it first, from anywhere, a text
+// field included, so it never goes through the looper's key rules.
+export type ShortcutAction = 'record' | 'overdub' | 'stop' | 'play' | 'undo'
 
 export interface ShortcutHelp { keys: string; does: string }
 
@@ -43,20 +45,33 @@ export function shortcutFor(e: KeyLike, looper: LooperView): ShortcutAction | nu
     case 'p': case 'P': return 'play'
     case 's': case 'S': return 'stop'
     case 'u': case 'U': return 'undo'
-    case 'Escape': return 'panic'
     default: return null
   }
 }
 
+/**
+ * Whether Space is the footswitch right now. It takes Space from a focused
+ * button (a toggle the mouse just clicked keeps focus, and must not flip on a
+ * footswitch press), so it claims the key only while it can do something real:
+ * a looper exists, and either there is input to record or a loop to drive.
+ * Before that, Space presses the focused button as usual: Start audio, Allow input.
+ */
+export function footswitchLive(looper: LooperView | null, inputOpen: boolean): boolean {
+  if (looper === null) return false
+  return inputOpen || looper.hasBase || looper.state !== 'idle'
+}
+
 export interface TargetLike { tagName?: string; type?: string; isContentEditable?: boolean }
 
-// Inputs whose keys are not text: a press on them can be a shortcut.
-const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'radio', 'range', 'file', 'submit', 'reset', 'color'])
+// Inputs whose keys are not text: a press on them can be a shortcut. A file
+// input is not one of them: Space is how a keyboard opens its picker.
+const NON_TEXT_INPUTS = new Set(['button', 'checkbox', 'radio', 'range', 'submit', 'reset', 'color'])
 
 /**
  * False while focus is somewhere keys are typed: a text or number field, a
- * select (letters jump between options), a text area or editable content.
- * On a button, Space is taken for the looper; Enter still presses the button.
+ * select (letters jump between options), a file picker, a text area or
+ * editable content. On a button, Space is taken for the looper while
+ * footswitchLive() says so; Enter always presses the button.
  */
 export function shortcutsAllowed(target: TargetLike | null): boolean {
   if (target === null) return true

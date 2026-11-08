@@ -22,10 +22,11 @@
 //
 // Loads freeze the whole audio thread (SPEC rule 6). The UI keeps them away
 // from a running transport; setLoadLock is the second fence, so a stray call
-// is refused instead of glitching a take.
+// is refused instead of glitching a take. The fence works the other way too:
+// busy() is true while a load is under way, and the transport waits for it.
 
 import { NamEngine, type NamModelInfo, type NamNode } from 'neural-amp-modeler-wasm/engine'
-import type { Graph } from './graph'
+import { RAMP, rampTo, type Graph } from './graph'
 
 export type ToneMode = 'amp' | 'bypass'
 
@@ -54,7 +55,6 @@ export interface Tone {
   setMode(m: ToneMode): void
   mode(): ToneMode
   loadModel(src: { name: string; text: string }): Promise<ModelSummary>
-  unloadModel(): Promise<void>
   /** Raw NAM slimmable size in [0, 1]; a no-op for models that are not slimmable. */
   setSlim(v: number): Promise<void>
   loadIr(src: { name: string; data: ArrayBuffer }): Promise<IrInfo>
@@ -63,6 +63,13 @@ export interface Tone {
   setOutputGainDb(db: number): void
   /** While locked, loadModel, loadIr and setSlim reject: each one stalls the audio thread. */
   setLoadLock(locked: boolean): void
+  /**
+   * A model, slim, IR or Clear IR operation is queued or running. The lock
+   * cannot stop one that is already past its check, so the looper must not
+   * start the transport while this is true (SPEC rule 6). onChange fires
+   * when it flips.
+   */
+  busy(): boolean
   model(): ModelSummary | null
   ir(): IrInfo | null
   status(): ToneStatus
@@ -74,7 +81,7 @@ export interface Tone {
 // ─── Pure helpers ───
 
 export const LOAD_LOCKED_MESSAGE =
-  'Stop the transport before loading: loading a model or IR freezes all audio for about 100 ms.'
+  'Stop the looper before loading a model or IR: a model load freezes all audio for a moment.'
 
 export function unsupportedMessage(renderQuantum: number): string {
   return `The amp needs a 128-frame audio render quantum and this browser is running ${renderQuantum}. ` +
@@ -136,16 +143,6 @@ export function checkIr(name: string, channels: number, seconds: number): string
 const messageOf = (err: unknown): string => err instanceof Error ? err.message : String(err)
 
 // ─── Gain automation ───
-
-const RAMP = 0.015 // seconds, as graph.ts: short enough to feel instant, long enough not to click
-
-function rampTo(param: AudioParam, ctx: BaseAudioContext, value: number): void {
-  const now = ctx.currentTime
-  const from = param.value // read before cancelling: a cancelled ramp can snap back
-  param.cancelScheduledValues(now)
-  param.setValueAtTime(from, now)
-  param.linearRampToValueAtTime(value, now + RAMP)
-}
 
 /**
  * Hand the bus from one path to the other. The incoming path waits until the
@@ -254,10 +251,17 @@ export function createTone(graph: Graph, opts: { assetBaseUrl?: string } = {}): 
 
   // Model and IR operations run one at a time, in call order. Overlapping
   // loads would interleave their ducks and leave the gate in the wrong state.
+  // `pending` counts them from the call until they settle: a load that has
+  // passed the lock check keeps going whatever the lock says next, so the
+  // looper has to wait for it instead.
   let queue: Promise<unknown> = Promise.resolve()
+  let pending = 0
   function serial<T>(op: () => Promise<T>): Promise<T> {
     const run = queue.then(op)
     queue = run.catch(() => {})
+    if (++pending === 1) emit()
+    const settled = () => { if (--pending === 0) emit() }
+    run.then(settled, settled)
     return run
   }
 
@@ -345,21 +349,6 @@ export function createTone(graph: Graph, opts: { assetBaseUrl?: string } = {}): 
       })
     },
 
-    unloadModel() {
-      return serial(async () => {
-        if (disposed || !nam || !current) return
-        await duck()
-        try {
-          await nam.unloadModel()
-        } finally {
-          // Even if the engine refused, the gate stays shut: silent is the safe failure.
-          current = null
-          settle()
-          emit()
-        }
-      })
-    },
-
     setSlim(v) {
       if (!Number.isFinite(v)) return Promise.reject(new RangeError(`Slim size must be a number in [0, 1], got ${v}.`))
       return guarded(async () => {
@@ -426,6 +415,7 @@ export function createTone(graph: Graph, opts: { assetBaseUrl?: string } = {}): 
     setOutputGainDb(db) { if (!disposed) rampTo(outputGain.gain, ctx, gainForDb(db)) },
 
     setLoadLock(on) { locked = on },
+    busy: () => pending > 0,
 
     model: () => current,
     ir: () => irInfo,

@@ -15,7 +15,9 @@
 // over from the boundary after that.
 
 import { encodeWav } from '../export/wav'
-import type { Graph } from './graph'
+import { zipStore } from '../export/zip'
+import { APP_SLUG } from '../app-name'
+import { rampTo, type Graph } from './graph'
 import { boundaryFrame, frameTime, nextBoundaryIndex, type Transport } from './transport'
 
 // ─── State machine (pure) ───
@@ -94,7 +96,7 @@ const BUSY: ReadonlySet<LooperMode> = new Set(['count-in', 'recording-base', 'ov
 export interface TakeMeta {
   toneMode: 'amp' | 'bypass'
   modelName: string | null
-  /** How the input reached the stereo files, e.g. "input 1, mono on L and R". */
+  /** How the input reached the stereo files, e.g. "input channel 1 through the amp, mono on L and R". */
   channelLayout: string
 }
 
@@ -124,11 +126,20 @@ export function mixLayers(base: Float32Array[], overdub: Float32Array[] | null):
   })
 }
 
+const sameMeta = (a: TakeMeta, b: TakeMeta): boolean =>
+  a.toneMode === b.toneMode && a.modelName === b.modelName && a.channelLayout === b.channelLayout
+
+/**
+ * `meta` describes the base. The tone can change between the base and the
+ * overdub (Bypass while the loop plays, another model after Stop), so the
+ * overdub carries its own block whenever it was recorded differently.
+ */
 export function buildTakeFiles(
   base: Float32Array[],
   overdub: Float32Array[] | null,
   info: TakeInfo,
   meta: TakeMeta,
+  overdubMeta: TakeMeta | null = null,
 ): ExportFile[] {
   const wav = (channels: Float32Array[]): Blob =>
     new Blob([encodeWav(channels, info.sampleRate, 24)], { type: 'audio/wav' })
@@ -136,7 +147,7 @@ export function buildTakeFiles(
   if (overdub) files.push({ name: 'overdub.wav', blob: wav(overdub) })
   files.push({ name: 'mix.wav', blob: wav(mixLayers(base, overdub)) })
   const take = {
-    format: 'guitar-rig take',
+    format: `${APP_SLUG} take`,
     version: 1,
     bpm: info.bpm,
     beatsPerBar: info.beatsPerBar,
@@ -151,10 +162,30 @@ export function buildTakeFiles(
     channelLayout: meta.channelLayout,
     toneMode: meta.toneMode,
     modelName: meta.modelName,
+    ...(overdub && overdubMeta && !sameMeta(meta, overdubMeta)
+      ? { overdub: { toneMode: overdubMeta.toneMode, modelName: overdubMeta.modelName, channelLayout: overdubMeta.channelLayout } }
+      : {}),
     files: files.map((f) => f.name), // the audio; this file describes them
   }
   files.push({ name: 'take.json', blob: new Blob([JSON.stringify(take, null, 2) + '\n'], { type: 'application/json' }) })
   return files
+}
+
+/**
+ * `homekey-take-2026-11-08-1930-120bpm.zip`, APP_SLUG first: the local date
+ * and time of the export and the loop's tempo. The time keeps two takes
+ * exported the same day at the same tempo from becoming "(1)" copies of one name.
+ */
+export function takeArchiveName(when: Date, bpm: number): string {
+  const two = (n: number): string => String(n).padStart(2, '0')
+  const stamp = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}-${two(when.getHours())}${two(when.getMinutes())}`
+  return `${APP_SLUG}-take-${stamp}-${Number(bpm.toFixed(2))}bpm.zip`
+}
+
+/** The take's files as one download: a store-only zip, so every byte goes in unchanged. */
+export async function packTake(files: readonly ExportFile[], bpm: number, when: Date): Promise<ExportFile> {
+  const entries = await Promise.all(files.map(async (f) => ({ name: f.name, data: new Uint8Array(await f.blob.arrayBuffer()) })))
+  return { name: takeArchiveName(when, bpm), blob: new Blob([zipStore(entries, when)], { type: 'application/zip' }) }
 }
 
 // ─── Latency ───
@@ -210,7 +241,10 @@ export interface Looper {
   snapshot(): LooperSnapshot
   /** Called on every state, latency or error change (poll snapshot() for position). */
   subscribe(cb: (s: LooperSnapshot) => void): () => void
-  exportFiles(meta: TakeMeta): Promise<ExportFile[]>
+  /** `meta` describes the base; `overdubMeta` the overdub, when there is one. */
+  exportFiles(meta: TakeMeta, overdubMeta?: TakeMeta | null): Promise<ExportFile[]>
+  /** The same files in one zip, named for `when` and the loop's tempo: what Export downloads. */
+  exportArchive(meta: TakeMeta, overdubMeta?: TakeMeta | null, when?: Date): Promise<ExportFile>
   dispose(): void
 }
 
@@ -333,9 +367,7 @@ export async function createLooper(graph: Graph, transport: Transport, options: 
   function fade(layer: Layer, keep: boolean): void {
     const now = ctx.currentTime
     const old = layer.out
-    old.gain.cancelScheduledValues(now)
-    old.gain.setValueAtTime(old.gain.value, now)
-    old.gain.linearRampToValueAtTime(0, now + FADE_S)
+    rampTo(old.gain, ctx, 0, FADE_S)
     for (const src of layer.sources) {
       try { src.stop(now + FADE_S) } catch { /* never started */ }
     }
@@ -437,6 +469,20 @@ export async function createLooper(graph: Graph, transport: Transport, options: 
 
   recorder.onprocessorerror = () => fail('The recorder stopped working. Reload the page to record again.')
 
+  // A suspended or interrupted context freezes its clock, so the worklet's
+  // frame count stays contiguous while the input it should have captured is
+  // lost: the take comes out spliced and `discontinuous` never fires (measured
+  // 2026-11-08, Chromium 153: 1 s suspended mid-take, 0.95 s of input missing
+  // at one splice, take accepted). Nothing on the grid can be trusted across
+  // it, so a take in flight is dropped; a loop that is only playing resumes in
+  // step, because everything it scheduled is on the same frozen clock.
+  const onContextState = (): void => {
+    if (ctx.state !== 'running' && BUSY.has(state.mode)) {
+      fail('Audio was interrupted during the take, so it was discarded. Try again.')
+    }
+  }
+  ctx.addEventListener('statechange', onContextState)
+
   function fail(message: string): void {
     cancelTake()
     for (const layer of layers()) fade(layer, true)
@@ -528,13 +574,17 @@ export async function createLooper(graph: Graph, transport: Transport, options: 
       listeners.add(cb)
       return () => { listeners.delete(cb) }
     },
-    async exportFiles(meta) {
+    async exportFiles(meta, overdubMeta = null) {
       if (base === null || loopParams === null) throw new Error('Nothing to export yet: record a loop first.')
       const channels = (l: Layer): Float32Array[] => [l.buffer.getChannelData(0), l.buffer.getChannelData(1)]
       return buildTakeFiles(channels(base), over ? channels(over) : null, {
         ...loopParams, sampleRate: sr, loopFrames: lf,
         latencyMs: base.latencyMs, overdubLatencyMs: over ? over.latencyMs : null,
-      }, meta)
+      }, meta, over ? overdubMeta : null)
+    },
+    async exportArchive(meta, overdubMeta = null, when = new Date()) {
+      const bpm = loopParams?.bpm ?? 0 // read before the await; exportFiles throws first when there is no loop
+      return packTake(await api.exportFiles(meta, overdubMeta), bpm, when)
     },
     dispose() {
       if (disposed) return
@@ -547,6 +597,7 @@ export async function createLooper(graph: Graph, transport: Transport, options: 
       over = null
       if (active) transport.stop()
       transport.lock(false)
+      ctx.removeEventListener('statechange', onContextState)
       recorder.port.onmessage = null
       recorder.onprocessorerror = null
       recorder.disconnect()

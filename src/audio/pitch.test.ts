@@ -1,6 +1,6 @@
-// Adapted from ModalRuns (same author): src/utils/pitchDetect.test.ts.
+// Adapted from the author's Modal Runs app (modalruns.com): its pitch tests.
 // Every pitch assertion is kept as it was. Dropped: the intervalSemitones
-// block, which tests ModalRuns' music theory, not the detector.
+// block, which tests music theory, not the detector.
 
 import { describe, it, expect } from 'vitest'
 import { detectPitch, freqToMidi, measureRms } from './pitch'
@@ -136,7 +136,7 @@ function mix(a: Float32Array, b: Float32Array): Float32Array {
 describe('drone bleed (raised level gate)', () => {
   // A drone in A: bleed level as heard by a mic across the room
   const bleed = droneBleed(110, 0.05)
-  // A gate raised the way ModalRuns' calibration did it: 2.5× the ambient RMS
+  // A gate raised the way the original's calibration did it: 2.5× the ambient RMS
   const calibratedGate = measureRms(bleed) * 2.5
 
   it('the drone alone IS detected without a raised gate — the problem is real', () => {

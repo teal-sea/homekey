@@ -28,33 +28,24 @@ describe('countInFrames', () => {
 const exactOffset = (i: number, lf: number, bpl: number): number =>
   Number((2n * BigInt(i) * BigInt(lf) + BigInt(bpl)) / (2n * BigInt(bpl)))
 
-describe('grid over 10,000 loops', () => {
+// Grid math in closed form. The drift evidence is the scheduler test further
+// down, which runs the real click scheduler through hundreds of loops; these
+// pin the integer arithmetic it relies on.
+describe('beat offsets', () => {
   for (const sampleRate of [44100, 48000]) {
     for (const [bpm, beatsPerBar, bars] of [[97, 4, 1], [97, 4, 8], [133.7, 7, 3], [61, 5, 16]]) {
-      it(`has zero drift at ${sampleRate} Hz, ${bpm} bpm, ${beatsPerBar}/x, ${bars} bars`, () => {
+      it(`are the exactly rounded positions at ${sampleRate} Hz, ${bpm} bpm, ${beatsPerBar}/x, ${bars} bars`, () => {
         const lf = loopFrames(sampleRate, bpm, beatsPerBar, bars)
         const perLoop = beatsPerBar * bars
         const origin = 123_456_789
-        const offsets = Array.from({ length: perLoop }, (_, i) => beatFrame(origin, lf, perLoop, 0, i) - origin)
-        for (let k = 0; k <= 10_000; k++) {
-          const b = boundaryFrame(origin, lf, k)
-          expect(Number.isInteger(b)).toBe(true)
-          if (k > 0) expect(b - boundaryFrame(origin, lf, k - 1)).toBe(lf)
-          let prev = -Infinity
-          for (let i = 0; i < perLoop; i++) {
-            const f = beatFrame(origin, lf, perLoop, k, i)
-            // Same distance from every boundary: click and a looping buffer of lf frames can't drift.
-            if (f - b !== offsets[i] || f <= prev) throw new Error(`loop ${k} beat ${i}: ${f}`)
-            prev = f
-          }
-          if (prev >= boundaryFrame(origin, lf, k + 1)) throw new Error(`loop ${k} overruns`)
-        }
-        // Offsets are the exactly rounded rational positions, and within a frame of even spacing.
         for (let i = 0; i < perLoop; i++) {
-          expect(offsets[i]).toBe(exactOffset(i, lf, perLoop))
-          expect(Math.abs(offsets[i] - i * lf / perLoop)).toBeLessThanOrEqual(0.5)
+          const offset = beatFrame(origin, lf, perLoop, 0, i) - origin
+          // The rational position i * lf / perLoop, rounded half up, with integers only.
+          expect(offset).toBe(exactOffset(i, lf, perLoop))
+          expect(Math.abs(offset - i * lf / perLoop)).toBeLessThanOrEqual(0.5)
+          // The same offset from a boundary far down the line: nothing accumulates.
+          expect(beatFrame(origin, lf, perLoop, 10_000, i) - boundaryFrame(origin, lf, 10_000)).toBe(offset)
         }
-        // Loop 10,000 starts exactly 10,000 integer loops after the origin.
         expect(boundaryFrame(origin, lf, 10_000)).toBe(origin + 10_000 * lf)
       })
     }
@@ -187,6 +178,55 @@ describe('createTransport', () => {
     // Never late: every click starts ahead of the audio clock at the moment it was scheduled.
     expect(oscs.every((o) => o.startAt - o.madeAt >= 0.005)).toBe(true)
     expect(oscs[0].startAt - oscs[0].madeAt).toBeGreaterThanOrEqual(0.1 - 1e-9)
+  })
+
+  // The no-drift evidence: the real scheduler, driven the way a browser drives
+  // it, against grid positions computed independently (exactOffset, BigInt).
+  it('keeps every click on the grid through 200 loops, and skips (never plays late) what a stall swallows', () => {
+    const sr = 44100
+    const { graph, ctx, oscs } = fakeGraph(sr)
+    const t = createTransport(graph, { bpm: 97, beatsPerBar: 4, bars: 1 })
+    const origin = t.start()
+    const lf = loopFrames(sr, 97, 4, 1) // 109113 frames: beats fall between frames
+    const loops = 200
+    const nowFrame = (): number => Math.round(ctx.currentTime * sr)
+
+    // Real time in ms. The audio clock moves in whole 128-frame render quanta;
+    // the timer ticks every 25 ms. Once, the main thread stalls for 1.5 s.
+    let ms = 0
+    const setClock = (): void => { ctx.currentTime = Math.floor(ms / 1000 * sr / 128) * 128 / sr }
+    const STALL_AT_MS = 250_000
+    let stall = { from: 0, to: 0 }
+    while (nowFrame() < origin + loops * lf) {
+      if (ms === STALL_AT_MS) {
+        stall = { from: nowFrame(), to: 0 }
+        ms += 1500
+        setClock()
+        stall.to = nowFrame()
+        vi.advanceTimersByTime(1500) // the overdue ticks all run at the same late moment
+        continue
+      }
+      ms += 25
+      setClock()
+      vi.advanceTimersByTime(25)
+    }
+
+    const exact = (k: number, i: number): number => origin + k * lf + exactOffset(i, lf, 4)
+    const grid: number[] = []
+    for (let k = 0; k <= loops; k++) for (let i = 0; i < 4; i++) grid.push(exact(k, i))
+    const clicks = oscs.filter((o) => o.type === 'sine').map((o) => frameOf(o, sr))
+    // Every click on the grid, in order, none twice.
+    expect(clicks.filter((f) => !grid.includes(f))).toEqual([])
+    expect(clicks.every((f, j) => j === 0 || f > clicks[j - 1])).toBe(true)
+    // The last loop lands exactly where 199 whole loops put it.
+    expect(clicks).toContain(exact(loops - 1, 3))
+    // Missing beats: only those due during the stall (or within the 5 ms
+    // minimum lead after it), so nothing ever sounded off the grid or late.
+    const due = grid.filter((f) => f < origin + loops * lf)
+    const missing = due.filter((f) => !clicks.includes(f))
+    expect(missing.length).toBeGreaterThan(0)
+    expect(missing.every((f) => f > stall.from && f < stall.to + Math.round(0.005 * sr))).toBe(true)
+    expect(oscs.every((o) => o.startAt - o.madeAt >= 0.005)).toBe(true)
   })
 
   it('emits onBeat in order once each beat has been rendered', () => {
