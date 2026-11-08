@@ -1,0 +1,24 @@
+{
+  "name": "guitar-rig",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-engine.mjs",
+    "dev": "vite",
+    "prebuild": "node scripts/copy-engine.mjs",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "neural-amp-modeler-wasm": "^3.0.7"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "typescript": "5.6",
+    "vite": "^6.4.5",
+    "vitest": "^4.1.12"
+  }
+}
