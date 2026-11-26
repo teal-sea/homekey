@@ -39,10 +39,11 @@ neither is in this repo. Headless Chromium here runs audio at 44.1 kHz, so the p
 
 Milestone 1 (November 2026). Built: audio input, pitch detection, music theory and the
 fretboard, the amp chain, the drone, the transport and click, the recorder and looper, WAV and
-zip export, and the page that wires them together, with unit tests and browser tests. It has
-run only in headless Chromium on Linux with a fake audio device, never with a real guitar and
-interface. [SPEC.md](SPEC.md) is the contract the modules follow;
-[What was tested, and what was not](#what-was-tested-and-what-was-not) is below.
+zip export, and the page that wires them together, with unit tests and browser tests. Automated
+tests run in headless Chromium on Linux with a fake audio device, and the app has also been
+sanity-tested manually with a real guitar and audio interface in Chrome on macOS. [SPEC.md](SPEC.md)
+is the contract the modules follow; [What was tested, and what was not](#what-was-tested-and-what-was-not)
+is below.
 
 ## Why this is hard
 
@@ -156,8 +157,8 @@ button as usual.
 **Latency offset.** What you play against the click reaches the recorder late. The default is the
 output latency the browser reports (`outputLatency + baseLatency`) plus 10 ms for the input side
 it cannot measure; you can set 0 to 300 ms. If overdubs land late against the loop, raise it;
-early, lower it. A value you set is remembered; **Use default** goes back. The default has not
-yet been checked against a real interface.
+early, lower it. A value you set is remembered; **Use default** goes back. The default offset has
+not yet been measured against a loopback hardware calibration.
 
 ## Security policy
 
@@ -234,10 +235,12 @@ All of it ran on Linux, in Node 22 and headless Chromium 153.
   The meter, the note readout and the neck followed the recording, a base and an overdub
   recorded, and the page logged no errors. No test asserts this, and the sound was not listened
   to.
-- **Not tested:** a real guitar through a real audio interface; real latency and the default
-  offset; how well pitch detection follows a distorted signal (Bypass with a multi-effects
-  unit); Firefox and Safari, so no iPhone or iPad; macOS, Windows and real phones; a screen
-  reader; a render quantum other than 128 in a real browser; long sessions.
+- **Manual hardware sanity check:** plugged a real guitar through an audio interface in Chrome on
+  macOS and confirmed live audio, input, and playback work.
+- **Not yet tested systematically:** measured loopback round-trip latency and the default offset;
+  how well pitch detection follows a distorted signal (Bypass with a multi-effects unit); Firefox
+  and Safari, so no iPhone or iPad; Windows and real phones; a screen reader; a render quantum
+  other than 128 in a real browser; long sessions.
 
 ## Roadmap after milestone 1
 
